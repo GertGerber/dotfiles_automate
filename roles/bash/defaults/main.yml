@@ -3,21 +3,21 @@
 bash_install_method: curl
 
 # Custom theme deployment
-# Provide a list of maps: [{src: "placemakers.theme.sh", dest: "placemakers.theme.sh"}]
+# Provide a list of maps: [{src: "fouchger.theme.sh", dest: "fouchger.theme.sh"}]
 bash_custom_themes:
-  - { src: "placemakers.theme.sh", dest: "placemakers.theme.sh" }
+  - { src: "fouchger.theme.sh", dest: "fouchger.theme.sh" }
 # Name of the theme to activate (matches file sans extension)
-bash_theme: placemakers
+bash_theme: fouchger
 
 # Custom plugins to deploy (each must exist under files/plugins/<name>/<name>.plugin.sh)
 bash_custom_plugins:
-  - placemakers-aliases
+  - fouchger-aliases
 
 # Plugins to activate
 bash_plugins:
   - git
   - bashmarks
-  - placemakers-aliases
+  - fouchger-aliases
 
 # Whether to write a managed block into ~/.bashrc to set OSH_THEME & plugins
 bash_manage_rc_block: true

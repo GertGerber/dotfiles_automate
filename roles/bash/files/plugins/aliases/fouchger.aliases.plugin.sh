@@ -1,4 +1,4 @@
-aliases.plugin.sh
+fouchger.aliases.plugin.sh
 # Handy aliases for devs
 alias ll='ls -alF'
 alias la='ls -A'
