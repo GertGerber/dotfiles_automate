@@ -1,0 +1,458 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# ========= Colours (Catppuccin Mocha) =========
+NC='\033[0m'
+BOLD='\033[1m'
+
+CAT_ROSEWATER='\033[38;2;245;224;220m'
+CAT_FLAMINGO='\033[38;2;242;205;205m'
+CAT_PINK='\033[38;2;245;194;231m'
+CAT_MAUVE='\033[38;2;203;166;247m'
+CAT_RED='\033[38;2;243;139;168m'
+CAT_MAROON='\033[38;2;235;160;172m'
+CAT_PEACH='\033[38;2;250;179;135m'
+CAT_YELLOW='\033[38;2;249;226;175m'
+CAT_GREEN='\033[38;2;166;227;161m'
+CAT_TEAL='\033[38;2;148;226;213m'
+CAT_SKY='\033[38;2;137;220;235m'
+CAT_SAPPHIRE='\033[38;2;116;199;236m'
+CAT_BLUE='\033[38;2;137;180;250m'
+CAT_LAVENDER='\033[38;2;180;190;254m'
+CAT_TEXT='\033[38;2;205;214;244m'
+CAT_SUBTEXT1='\033[38;2;186;194;222m'
+CAT_SUBTEXT0='\033[38;2;166;173;200m'
+CAT_OVERLAY2='\033[38;2;147;153;178m'
+CAT_OVERLAY1='\033[38;2;127;132;156m'
+CAT_OVERLAY0='\033[38;2;108;112;134m'
+CAT_SURFACE2='\033[38;2;88;91;112m'
+CAT_SURFACE1='\033[38;2;69;71;90m'
+CAT_SURFACE0='\033[38;2;49;50;68m'
+CAT_BASE='\033[38;2;30;30;46m'
+CAT_MANTLE='\033[38;2;24;24;37m'
+CAT_CRUST='\033[38;2;17;17;27m'
+
+# Legacy/aliases
+RED="$CAT_RED"
+GREEN="$CAT_GREEN"
+YELLOW="$CAT_YELLOW"
+BLUE="$CAT_BLUE"
+PURPLE="$CAT_MAUVE"
+CYAN="$CAT_TEAL"
+WHITE="$CAT_TEXT"
+LBLACK="$CAT_SURFACE0"
+LRED="$CAT_RED"
+LGREEN="$CAT_GREEN"
+LYELLOW="$CAT_YELLOW"
+LBLUE="$CAT_BLUE"
+LPURPLE="$CAT_MAUVE"
+LCYAN="$CAT_TEAL"
+SEA="$CAT_SAPPHIRE"
+ORANGE="$CAT_PEACH"
+OVERWRITE='\e[1A\e[K'
+
+# Emoji codes
+CHECK_MARK="${GREEN}\xE2\x9C\x94${NC}"
+X_MARK="${RED}\xE2\x9C\x96${NC}"
+PIN="${RED}\xF0\x9F\x93\x8C${NC}"
+CLOCK="${GREEN}\xE2\x8C\x9B${NC}"
+ARROW="${SEA}\xE2\x96\xB6${NC}"
+BOOK="${RED}\xF0\x9F\x93\x8B${NC}"
+HOT="${ORANGE}\xF0\x9F\x94\xA5${NC}"
+WARNING="${RED}\xF0\x9F\x9A\xA8${NC}"
+RIGHT_ANGLE="${GREEN}\xE2\x88\x9F${NC}"
+
+# ========= Paths / Globals =========
+DOTFILES_LOG="$HOME/.dotfiles.log"
+DOTFILES_DIR="$HOME/.dotfiles"
+CONFIG_FILE="$DOTFILES_DIR/group_vars/all.yml"
+IS_FIRST_RUN="$HOME/.dotfiles_run"
+DOTFILESURL="https://github.com/GertGerber/dotfiles_automate.git"
+
+TASK=""
+SPINNER_PID=""
+IS_TTY=1
+[ -t 1 ] || IS_TTY=0
+
+# ========= Safe tput wrapper =========
+_tput() {
+  [ "$IS_TTY" -eq 1 ] && command -v tput >/dev/null 2>&1 && tput "$@"
+}
+
+# ========= Cleanup on exit =========
+cleanup() {
+  if [[ -n "${SPINNER_PID}" ]]; then
+    kill "${SPINNER_PID}" 2>/dev/null || true
+    wait "${SPINNER_PID}" 2>/dev/null || true
+  fi
+  _tput cnorm
+}
+trap cleanup EXIT INT TERM
+
+# ========= Spinner =========
+_spinner() {
+  local task_text="$1"
+  local chars=( '⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏' )
+  local delay=0.08
+
+  _tput civis
+  _tput sc
+
+  while true; do
+    for char in "${chars[@]}"; do
+      _tput rc
+      _tput el
+      printf "${CAT_OVERLAY1} [${CAT_SAPPHIRE}%s${CAT_OVERLAY1}]  ${CAT_TEXT}%s" "$char" "$task_text" >&2
+      sleep "$delay"
+    done
+  done
+}
+
+__task() {
+  if [[ -n "${TASK}" && -n "${SPINNER_PID}" ]]; then
+    _task_done
+  fi
+  TASK="$1"
+  if [ "$IS_TTY" -eq 1 ]; then
+    _spinner "$TASK" &
+    SPINNER_PID=$!
+    disown "$SPINNER_PID" 2>/dev/null || true
+  else
+    printf "${CAT_TEXT}%s...\n" "$TASK"
+  fi
+}
+
+_clear_task() { TASK=""; }
+
+_task_done() {
+  if [[ -n "${SPINNER_PID}" ]]; then
+    kill "${SPINNER_PID}" 2>/dev/null || true
+    wait "${SPINNER_PID}" 2>/dev/null || true
+    SPINNER_PID=""
+  fi
+  _tput cnorm
+  printf "\r\033[K${CAT_GREEN} [✓]  ${CAT_TEXT}%s\n" "${TASK:-Done}"
+  _clear_task
+}
+
+# Run command with error capture
+_cmd() {
+  : > "$DOTFILES_LOG"
+  if bash -c -- "$1" 1>/dev/null 2>"$DOTFILES_LOG"; then
+    return 0
+  fi
+
+  if [[ -n "${SPINNER_PID}" ]]; then
+    kill "${SPINNER_PID}" 2>/dev/null || true
+    wait "${SPINNER_PID}" 2>/dev/null || true
+    SPINNER_PID=""
+  fi
+  _tput cnorm
+  printf "\r\033[K${CAT_RED} [✗]  ${CAT_TEXT}%s${NC}\n" "${TASK:-Command failed}"
+
+  while IFS= read -r line; do
+    printf "      ${CAT_MAROON}%s${NC}\n" "$line"
+  done < "$DOTFILES_LOG"
+  printf "\n"
+  rm -f "$DOTFILES_LOG"
+  exit 1
+}
+
+# ========= Helpers =========
+usage() {
+  cat <<'EOF'
+Usage: dotfiles.sh [--uninstall ROLE] [--delete ROLE] [ANSIBLE_ARGS...]
+
+Options:
+  --uninstall ROLE   Run the role's uninstall script (if present).
+  --delete ROLE      Uninstall (if present) and delete the role directory, and remove from group_vars/all.yml.
+  -h|--help          Show this help.
+
+Notes:
+  • Ubuntu and WSL only. Requires sudo for package installation.
+  • Additional arguments are passed directly to ansible-playbook.
+EOF
+}
+
+# Portable sed -i (GNU/BSD)
+sed_inplace() {
+  # usage: sed_inplace 'SCRIPT' FILE
+  if sed --version >/dev/null 2>&1; then
+    sed -i "$1" "$2"
+  else
+    sed -i '' "$1" "$2"
+  fi
+}
+
+# ========= OS Detection (Ubuntu / WSL only) =========
+detect_os() {
+  local id="unknown"
+  if [ -f /etc/os-release ]; then
+    # shellcheck disable=SC1091
+    . /etc/os-release
+    id="${ID:-unknown}"
+  fi
+  # Detect WSL via kernel signature
+  if grep -qiE 'microsoft|wsl' /proc/version 2>/dev/null; then
+    echo "wsl"
+    return
+  fi
+  echo "$id"
+}
+
+# ========= Banner =========
+print_banner() {
+  echo ""
+  echo -e "${SEA}  ██████╗ ███████╗██████╗ ████████╗     ██████╗ ███████╗██████╗ ██████╗ ███████╗██████╗ ${ORANGE} Dotfiles Installer ${NC}"
+  echo -e "${SEA} ██╔════╝ ██╔════╝██╔══██╗╚══██╔══╝    ██╔════╝ ██╔════╝██╔══██╗██╔══██╗██╔════╝██╔══██╗${BLUE} by GertGerber ${NC}"
+  echo -e "${SEA} ██║  ███╗█████╗  ██████╔╝   ██║       ██║  ███╗█████╗  ██████╔╝██████╔╝█████╗  ██████╔╝${PURPLE} Setup your dev environment ${NC}"
+  echo -e "${SEA} ██║   ██║██╔══╝  ██╔══██╗   ██║       ██║   ██║██╔══╝  ██╔══██╗██╔══██╗██╔══╝  ██╔══██╗${YELLOW} Enjoy coding! 🚀${NC}"
+  echo -e "${SEA} ╚██████╔╝███████╗██║  ██║   ██║       ╚██████╔╝███████╗██║  ██║██████╔╝███████╗██║  ██║${GREEN} Have fun with roles! 🎉${NC}"
+  echo -e "${SEA}  ╚═════╝ ╚══════╝╚═╝  ╚═╝   ╚═╝        ╚═════╝ ╚══════╝╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝${NC}"
+  echo ""
+  echo -e "${CAT_BLUE}        ██████╗  ██████╗ ████████╗███████╗██╗██╗     ███████╗███████╗${NC}"
+  echo -e "${CAT_BLUE}        ██╔══██╗██╔═══██╗╚══██╔══╝██╔════╝██║██║     ██╔════╝██╔════╝${NC}"
+  echo -e "${CAT_BLUE}        ██║  ██║██║   ██║   ██║   █████╗  ██║██║     █████╗  ███████╗${NC}"
+  echo -e "${CAT_BLUE}        ██║  ██║██║   ██║   ██║   ██╔══╝  ██║██║     ██╔══╝  ╚════██║${NC}"
+  echo -e "${CAT_BLUE}        ██████╔╝╚██████╔╝   ██║   ██║     ██║███████╗███████╗███████║${NC}"
+  echo -e "${CAT_BLUE}        ╚═════╝  ╚═════╝    ╚═╝   ╚═╝     ╚══════╝╚══════╝╚══════╝${NC}"
+  echo ""
+}
+
+# ========= Ubuntu / WSL setup =========
+ubuntu_setup() {
+  # VERSION_ID available after sourcing os-release
+  local VERSION_ID=""; [ -f /etc/os-release ] && . /etc/os-release || true
+
+  if ! dpkg -s ansible >/dev/null 2>&1; then
+    __task "Installing Ansible (This may take a few minutes)"
+    _cmd "sudo apt-get update -y"
+    _cmd "sudo apt-get install -y git"
+    _cmd "sudo apt-get install -y software-properties-common"
+    _cmd "sudo apt-add-repository -y ppa:ansible/ansible"
+    _cmd "sudo apt-get update -y"
+    _cmd "sudo apt-get install -y ansible"
+    _cmd "sudo apt-get install -y python3-argcomplete"
+  fi
+
+  if ! dpkg -s python3 >/dev/null 2>&1; then
+    __task "Installing Python 3"
+    _cmd "sudo apt-get install -y python3"
+  fi
+
+  # Pip and watchdog (older Ubuntus)
+  local UBUNTU_MAJOR_VERSION
+  UBUNTU_MAJOR_VERSION="$(echo "${VERSION_ID:-22.04}" | cut -d. -f1 || echo 22)"
+  if [ "$UBUNTU_MAJOR_VERSION" -le 22 ] 2>/dev/null; then
+    if ! dpkg -s python3-pip >/dev/null 2>&1; then
+      __task "Installing Python3 Pip"
+      _cmd "sudo apt-get install -y python3-pip"
+    fi
+    if ! python3 -m pip list 2>/dev/null | grep -q '^watchdog '; then
+      __task "Installing Python Watchdog"
+      _cmd "python3 -m pip install --user watchdog"
+    fi
+  fi
+}
+
+# ========= Galaxy deps =========
+update_ansible_galaxy() {
+  local os="$1"
+  local os_requirements=""
+  __task "Installing Ansible dependencies (This may take a few minutes)"
+  if [ -f "$DOTFILES_DIR/requirements/${os}.yml" ]; then
+    os_requirements="$DOTFILES_DIR/requirements/${os}.yml"
+  fi
+  _cmd "ansible-galaxy install -r $DOTFILES_DIR/requirements/common.yml ${os_requirements:+-r $os_requirements}"
+}
+
+# ========= Config bootstrapping =========
+create_groupvars_all() {
+  if [ ! -f "$CONFIG_FILE" ]; then
+    if [ -f "$CONFIG_FILE.example" ]; then
+      __task "Copying group_vars/all.yml.example → group_vars/all.yml"
+      cp "$CONFIG_FILE.example" "$CONFIG_FILE"
+      _task_done
+    else
+      __task "Creating empty group_vars/all.yml"
+      mkdir -p "$(dirname "$CONFIG_FILE")"
+      echo "# Your configuration goes here" > "$CONFIG_FILE"
+      _task_done
+    fi
+  fi
+}
+
+# ========= Role uninstall/delete helpers =========
+run_uninstall_script() {
+  local role="$1"
+  local role_dir="$DOTFILES_DIR/roles/$role"
+  local uninstall_script="$role_dir/uninstall.sh"
+
+  if [[ ! -d "$role_dir" ]]; then
+    echo -e "${RED} [✗]  ${WHITE}Error: Role '${role}' not found${NC}"
+    return 1
+  fi
+  if [[ ! -f "$uninstall_script" ]]; then
+    echo -e "${RED} [✗]  ${WHITE}Error: Role '${role}' does not have an uninstall script${NC}"
+    return 1
+  fi
+
+  # Export functions and colours for uninstall script
+  export -f __task _task_done _clear_task _cmd _spinner
+  export SPINNER_PID TASK DOTFILES_LOG
+  export NC BOLD
+  export CAT_ROSEWATER CAT_FLAMINGO CAT_PINK CAT_MAUVE CAT_RED CAT_MAROON
+  export CAT_PEACH CAT_YELLOW CAT_GREEN CAT_TEAL CAT_SKY CAT_SAPPHIRE
+  export CAT_BLUE CAT_LAVENDER CAT_TEXT CAT_SUBTEXT1 CAT_SUBTEXT0
+  export CAT_OVERLAY2 CAT_OVERLAY1 CAT_OVERLAY0 CAT_SURFACE2 CAT_SURFACE1
+  export CAT_SURFACE0 CAT_BASE CAT_MANTLE CAT_CRUST
+  export RED GREEN YELLOW BLUE PURPLE CYAN WHITE LBLACK
+  export LRED LGREEN LYELLOW LBLUE LPURPLE LCYAN SEA OVERWRITE
+  export CHECK_MARK X_MARK PIN CLOCK ARROW BOOK HOT WARNING RIGHT_ANGLE
+
+  bash "$uninstall_script"
+  return 0
+}
+
+# ========= Main =========
+print_banner
+
+# Parse args
+UNINSTALL_ROLE=""
+DELETE_ROLE=""
+REMAINING_ARGS=()
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --uninstall)
+      UNINSTALL_ROLE="${2:-}"; shift 2;;
+    --delete)
+      DELETE_ROLE="${2:-}"; shift 2;;
+    -h|--help)
+      usage; exit 0;;
+    *)
+      REMAINING_ARGS+=("$1"); shift;;
+  esac
+done
+
+dotfiles_os="$(detect_os)"
+
+# Ubuntu/WSL only guard
+case "$dotfiles_os" in
+  ubuntu|wsl)
+    __task "Loading setup for detected OS: $dotfiles_os"
+    ubuntu_setup
+    _task_done
+    ;;
+  *)
+    __task "Unsupported OS"
+    _cmd "echo 'Unsupported OS: $dotfiles_os. This installer supports Ubuntu and WSL only.'"
+    ;;
+esac
+
+# Clone or update dotfiles
+if [[ ! -d "$DOTFILES_DIR" ]]; then
+  __task "Downloading dotfiles repository (This may take a minute)"
+  _cmd "git clone --quiet $DOTFILESURL $DOTFILES_DIR"
+  _task_done
+else
+  __task "Updating dotfiles repository"
+  _cmd "git -C $DOTFILES_DIR pull --quiet"
+  _task_done
+fi
+
+# Move into repo
+pushd "$DOTFILES_DIR" >/dev/null 2>&1
+
+# Handle uninstall
+if [[ -n "$UNINSTALL_ROLE" ]]; then
+  echo -e "${YELLOW} [?]  ${WHITE}This will uninstall ${BOLD}${CAT_MAUVE}${UNINSTALL_ROLE}${NC}."
+  read -r -p "$(echo -e "${YELLOW}Are you sure? (y/N) ${NC}")" -n 1 REPLY; echo
+  if [[ $REPLY =~ ^[Yy]$ ]]; then
+    if run_uninstall_script "$UNINSTALL_ROLE"; then
+      echo -e "${GREEN} [✓]  ${WHITE}${UNINSTALL_ROLE} has been uninstalled${NC}"
+    else
+      popd >/dev/null 2>&1; exit 1
+    fi
+  else
+    echo -e "${YELLOW} [!]  ${WHITE}Uninstall cancelled${NC}"
+  fi
+  popd >/dev/null 2>&1
+  exit 0
+fi
+
+# Handle delete
+if [[ -n "$DELETE_ROLE" ]]; then
+  ROLE_DIR="$DOTFILES_DIR/roles/$DELETE_ROLE"
+  UNINSTALL_SCRIPT="$ROLE_DIR/uninstall.sh"
+
+  if [[ ! -d "$ROLE_DIR" ]]; then
+    echo -e "${RED} [✗]  ${WHITE}Error: Role '${DELETE_ROLE}' not found${NC}"
+    popd >/dev/null 2>&1; exit 1
+  fi
+
+  if [[ -f "$UNINSTALL_SCRIPT" ]]; then
+    echo -e "${YELLOW} [?]  ${WHITE}This will uninstall ${BOLD}${CAT_MAUVE}${DELETE_ROLE}${NC} and ${BOLD}${CAT_RED}DELETE${NC} the role from your dotfiles."
+  else
+    echo -e "${YELLOW} [?]  ${WHITE}This will ${BOLD}${CAT_RED}DELETE${NC} the role ${BOLD}${CAT_MAUVE}${DELETE_ROLE}${NC} from your dotfiles."
+    echo -e "${YELLOW}      ${WHITE}Note: No uninstall script exists, so only the role directory will be removed.${NC}"
+  fi
+
+  read -r -p "$(echo -e "${YELLOW}Are you sure? (y/N) ${NC}")" -n 1 REPLY; echo
+  if [[ $REPLY =~ ^[Yy]$ ]]; then
+    if [[ -f "$UNINSTALL_SCRIPT" ]]; then
+      if ! run_uninstall_script "$DELETE_ROLE"; then
+        echo -e "${YELLOW} [!]  ${WHITE}Uninstall script failed, but continuing with deletion...${NC}"
+      fi
+    fi
+
+    if grep -q "^  - $DELETE_ROLE$" "$DOTFILES_DIR/group_vars/all.yml"; then
+      __task "Removing $DELETE_ROLE from configuration"
+      cp "$DOTFILES_DIR/group_vars/all.yml" "$DOTFILES_DIR/group_vars/all.yml.bak"
+      sed_inplace "/^  - $DELETE_ROLE\$/d" "$DOTFILES_DIR/group_vars/all.yml"
+      _task_done
+    fi
+
+    __task "Removing $DELETE_ROLE role directory"
+    rm -rf "$ROLE_DIR"
+    _task_done
+
+    if [[ -f "$UNINSTALL_SCRIPT" ]]; then
+      echo -e "${GREEN} [✓]  ${WHITE}${DELETE_ROLE} has been uninstalled and deleted${NC}"
+    else
+      echo -e "${GREEN} [✓]  ${WHITE}${DELETE_ROLE} has been deleted${NC}"
+    fi
+  else
+    echo -e "${YELLOW} [!]  ${WHITE}Delete cancelled${NC}"
+  fi
+
+  popd >/dev/null 2>&1
+  exit 0
+fi
+
+# Prepare config and galaxy deps
+create_groupvars_all
+update_ansible_galaxy "$dotfiles_os"
+
+# Run Ansible
+_task_done
+ansible-playbook "$DOTFILES_DIR/main.yml" "${REMAINING_ARGS[@]}"
+
+popd >/dev/null 2>&1
+
+# First-run messaging
+if [[ ! -f "$IS_FIRST_RUN" ]]; then
+  echo ""
+  echo -e "${CHECK_MARK} ${CAT_GREEN}🎉 Dotfiles installation complete!${NC}"
+  echo ""
+  echo -e "${ARROW} ${CAT_TEAL}Next steps:${NC}"
+  echo -e "   1. Customise your setup: ${CAT_LAVENDER}nvim ~/.dotfiles/group_vars/all.yml${NC}"
+  echo -e "   2. Apply changes anytime: ${CAT_LAVENDER}dotfiles${NC}"
+  echo -e "   3. Get help: ${CAT_LAVENDER}https://discord.gg/5M4hjfyRBj${NC}"
+  echo ""
+  echo -e "${ARROW} ${CAT_TEAL}Please reboot your computer to complete the setup.${NC}"
+  echo ""
+  touch "$IS_FIRST_RUN"
+fi
+
+# vi:ft=sh
