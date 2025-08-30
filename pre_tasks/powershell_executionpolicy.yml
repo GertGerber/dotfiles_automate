@@ -1,0 +1,49 @@
+---
+# WSL-only: ensure Windows PowerShell ExecutionPolicy is RemoteSigned for CurrentUser
+
+- name: Check that powershell.exe is available (WSL)
+  ansible.builtin.command: which powershell.exe
+  register: ps_path
+  changed_when: false
+  failed_when: false
+
+- name: Get current PowerShell ExecutionPolicy (CurrentUser)
+  ansible.builtin.shell: |
+    $p = Get-ExecutionPolicy -Scope CurrentUser
+    Write-Output $p
+  args:
+    executable: powershell.exe
+  register: ps_policy
+  changed_when: false
+  failed_when: false
+  when: ps_path.rc == 0
+
+- name: Set PowerShell ExecutionPolicy to RemoteSigned (CurrentUser) if needed
+  ansible.builtin.shell: |
+    $ErrorActionPreference = 'Stop'
+    if ((Get-ExecutionPolicy -Scope CurrentUser) -ne 'RemoteSigned') {
+      Set-ExecutionPolicy RemoteSigned -Force -Scope CurrentUser
+    }
+    # Echo final state for Ansible to capture
+    Get-ExecutionPolicy -Scope CurrentUser
+  args:
+    executable: powershell.exe
+  register: ps_set_result
+  changed_when: (ps_policy.stdout | trim) != (ps_set_result.stdout | trim)
+  failed_when: (ps_set_result.stdout | trim) != 'RemoteSigned'
+  when: ps_path.rc == 0
+
+- name: Set fact: powershell_execpolicy_is_remotesigned
+  ansible.builtin.set_fact:
+    powershell_execpolicy_is_remotesigned: >-
+      {{
+        (ps_path.rc == 0)
+        and (
+          (ps_set_result.stdout | default(ps_policy.stdout, true) | trim) == 'RemoteSigned'
+        )
+      }}
+
+- name: Warn if powershell.exe not found in WSL PATH
+  ansible.builtin.debug:
+    msg: "powershell.exe not found in PATH. Skipping ExecutionPolicy configuration."
+  when: ps_path.rc != 0
