@@ -1,93 +1,59 @@
 ---
-- name: "Bash | Detect oh-my-bash"
+- name: "Bash | Ubuntu/WSL only"
+  ansible.builtin.assert:
+    that:
+      - ansible_distribution == 'Ubuntu'
+    fail_msg: "This role supports Ubuntu 24.04 (incl. WSL) only."
+    success_msg: "Ubuntu detected."
+  tags: [bash]
+
+- name: "Bash | Ensure prerequisites (curl, wget, git)"
+  ansible.builtin.apt:
+    name:
+      - curl
+      - wget
+      - git
+    state: present
+    update_cache: true
+  become: true
+  tags: [bash, prereq]
+
+- name: "Bash | Check if Oh My Bash is already installed"
   ansible.builtin.stat:
-    path: "{{ ansible_user_dir }}/.oh-my-bash"
-  register: ohmybash
+    path: "{{ ansible_env.HOME }}/.oh-my-bash"
+  register: omb_dir
+  tags: [bash, install]
 
-- name: "Bash | Register oh-my-bash state"
-  ansible.builtin.set_fact:
-    ohmybash_is_installed: "{{ ohmybash.stat.exists }}"
-
-- name: "Bash | Install oh-my-bash"
-  when: not ohmybash_is_installed
-  block:
-    - name: "Bash | Download oh-my-bash Install Script"
-      ansible.builtin.get_url:
-        url: https://raw.githubusercontent.com/ohmybash/oh-my-bash/master/tools/install.sh
-        dest: "{{ ansible_user_dir }}/oh-my-bash.install.sh"
-        force: true
-        mode: "0755"
-      notify:
-        - "Bash | Cleanup oh-my-bash install script"
-
-    - name: "Bash | Run the install script (idempotent)"
-      ansible.builtin.command: bash "{{ ansible_user_dir }}/oh-my-bash.install.sh"
-      args:
-        creates: "{{ ansible_user_dir }}/.oh-my-bash"
-
-- name: "Bash | Copy .bashrc"
-  ansible.builtin.copy:
-    src: ".bashrc"
-    dest: "{{ ansible_user_dir }}/.bashrc"
-    mode: "0644"
-
-- name: "Bash | Copy .profile"
-  ansible.builtin.copy:
-    src: ".profile"
-    dest: "{{ ansible_user_dir }}/.profile"
-    mode: "0644"
-
-- name: "Bash | Copy custom bash config"
-  ansible.builtin.copy:
-    dest: "{{ ansible_user_dir }}/.config/"
-    src: "bash"
-    mode: "0644"
-    directory_mode: "0755"
-    force: true
-
-- name: "Bash | Copy custom bash theme"
-  ansible.builtin.copy:
-    dest: "{{ ansible_user_dir }}/.oh-my-bash/custom/"
-    src: "themes"
-    directory_mode: "0755"
-    mode: "0644"
-    force: true
-  when: ohmybash_is_installed
-
-- name: "Bash | Ensure axin theme is active"
-  ansible.builtin.lineinfile:
-    path: "{{ ansible_user_dir }}/.bashrc"
-    regexp: '^#?\s*OSH_THEME='
-    line: 'OSH_THEME="axin"'
-    insertafter: '^export OSH='
-    backrefs: false
-  when: ohmybash_is_installed
-
-- name: "Bash | {{ ansible_distribution }} | Identify distribution config"
-  ansible.builtin.stat:
-    path: "{{ role_path }}/files/os/{{ ansible_distribution }}"
-  register: bash_os_distribution_config
-
-- name: "Bash | {{ ansible_os_family }} | Identify os family config"
-  ansible.builtin.stat:
-    path: "{{ role_path }}/files/os/{{ ansible_os_family }}"
-  register: bash_os_family_config
-  when: not bash_os_distribution_config.stat.exists
-
-- name: "Bash | Calculate os config src"
-  ansible.builtin.set_fact:
-    bash_os_config_path: >-
-      {{
-        (bash_os_distribution_config.stat.exists)
-        | ternary(bash_os_distribution_config.stat.path, bash_os_family_config.stat.path | default(''))
-      }}
-
-- name: "Bash | Copy custom bash config for os"
-  ansible.builtin.copy:
-    dest: "{{ ansible_user_dir }}/.config/bash/"
-    src: "{{ bash_os_config_path }}/"
-    mode: "0644"
-    force: true
+- name: "Bash | Install Oh My Bash via curl"
+  ansible.builtin.shell: >
+    bash -c "$(curl -fsSL https://raw.githubusercontent.com/ohmybash/oh-my-bash/master/tools/install.sh)"
+  args:
+    executable: /bin/bash
+    creates: "{{ ansible_env.HOME }}/.oh-my-bash"
   when:
-    - bash_os_config_path is defined
-    - bash_os_config_path | length > 0
+    - not omb_dir.stat.exists
+    - bash_install_method | lower == 'curl'
+  changed_when: true
+  tags: [bash, install]
+
+- name: "Bash | Install Oh My Bash via wget"
+  ansible.builtin.shell: >
+    bash -c "$(wget https://raw.githubusercontent.com/ohmybash/oh-my-bash/master/tools/install.sh -O -)"
+  args:
+    executable: /bin/bash
+    creates: "{{ ansible_env.HOME }}/.oh-my-bash"
+  when:
+    - not omb_dir.stat.exists
+    - bash_install_method | lower == 'wget'
+  changed_when: true
+  tags: [bash, install]
+
+- name: "Bash | Ensure ~/.bash_profile sources ~/.bashrc"
+  ansible.builtin.blockinfile:
+    path: "{{ ansible_env.HOME }}/.bash_profile"
+    create: true
+    block: |
+      if [[ -f ~/.bashrc ]]; then
+        source ~/.bashrc
+      fi
+  tags: [bash, profile]

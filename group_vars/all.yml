@@ -26,7 +26,7 @@ os_role_overrides:
 
 # Break profiles into non-recursive pieces
 # Base lists (no self-reference)
-role_profiles_basic: [bash, zoxide]
+role_profiles_basic: [system, bash, zoxide]
 
 role_profiles_minimal: "{{ role_profiles_basic
   + ['git','fzf','bat','lsd'] }}"

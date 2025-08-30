@@ -1,0 +1,7 @@
+---
+galaxy_info:
+  author: placemakers
+  description: "System bootstrap for Ubuntu 24.04 + WSL"
+  license: MIT
+  min_ansible_version: "2.14"
+dependencies: []

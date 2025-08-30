@@ -1,0 +1,31 @@
+---
+# Base packages – keep WSL set free of kernel/storage bits.
+system_base_packages:
+  - jq
+  - unzip
+  - curl
+  - ca-certificates
+  - gnupg
+  - git
+  - openssh-client
+  - build-essential
+  - open-iscsi
+
+system_base_packages_wsl:
+  - jq
+  - unzip
+  - curl
+  - ca-certificates
+  - gnupg
+  - git
+  - openssh-client
+  - build-essential
+  # (no open-iscsi in WSL)
+
+# WSL clipboard helper (set checksum if you want supply-chain enforcement)
+win32yank_version: "0.0.4"
+win32yank_checksum: ""   # e.g., "sha256:<expected_sum>" or leave blank to skip
+
+# Sudo behaviour
+system_manage_sudo: false
+system_sudo_user: "{{ ansible_env.SUDO_USER | default(ansible_user_id) }}"

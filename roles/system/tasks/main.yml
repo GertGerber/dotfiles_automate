@@ -1,0 +1,18 @@
+---
+- name: "System | Ubuntu/WSL only"
+  ansible.builtin.assert:
+    that:
+      - ansible_distribution == 'Ubuntu'
+    fail_msg: "This role supports Ubuntu 24.04 (incl. WSL) only."
+    success_msg: "Ubuntu detected."
+
+- name: "System | Detect WSL"
+  ansible.builtin.set_fact:
+    ansible_host_environment_is_wsl: >-
+      {{ (ansible_env.WSL_DISTRO_NAME is defined)
+         or ('microsoft' in (ansible_kernel | lower))
+         or ('microsoft' in (ansible_distribution_release | lower) | default(false)) }}
+
+- name: "System | Include Ubuntu tasks"
+  ansible.builtin.include_tasks: Ubuntu.yml
+  tags: [system, ubuntu]

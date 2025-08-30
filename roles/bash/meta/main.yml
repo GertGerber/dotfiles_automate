@@ -1,0 +1,7 @@
+---
+galaxy_info:
+  author: placemakers
+  description: "Installs and configures Oh My Bash on Ubuntu 24.04/WSL"
+  license: MIT
+  min_ansible_version: "2.14"
+dependencies: []
