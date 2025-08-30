@@ -1,4 +1,5 @@
 ---
+# Detect current state
 - name: "Bash | Detect oh-my-bash"
   ansible.builtin.stat:
     path: "{{ ansible_user_dir }}/.oh-my-bash"
@@ -12,22 +13,27 @@
   ansible.builtin.debug:
     var: ohmybash_is_installed
 
+# Install Oh My Bash (idempotent)
 - name: "Bash | Install oh-my-bash"
   when: not ohmybash_is_installed
   block:
-    - name: "Bash | Download oh-my-bash Install Script"
+    - name: "Bash | Download oh-my-bash install script"
       ansible.builtin.get_url:
-        url: https://raw.githubusercontent.com/ohmybash/oh-my-bash/master/tools/install.sh
-        dest: /{{ ansible_user_dir }}/oh-my-bash.install.sh
-        force: true
+        url: "{{ ohmybash_install_url | default('https://raw.githubusercontent.com/ohmybash/oh-my-bash/master/tools/install.sh') }}"
+        dest: "{{ ansible_user_dir }}/oh-my-bash.install.sh"
         mode: "0755"
+        force: true
+        checksum: "{{ ohmybash_install_checksum | default(omit) }}"
       notify:
         - "Bash | Cleanup oh-my-bash install script"
 
-    - name: "Bash | Run the install script"
-      ansible.builtin.script:
-        cmd: /{{ ansible_user_dir }}/oh-my-bash.install.sh
+    # Use shell/command to execute the remote script we just downloaded
+    - name: "Bash | Run the oh-my-bash installer"
+      ansible.builtin.shell: "bash {{ ansible_user_dir }}/oh-my-bash.install.sh"
+      args:
+        executable: /bin/bash
 
+# User config files
 - name: "Bash | Copy .bashrc"
   ansible.builtin.copy:
     src: ".bashrc"
@@ -40,6 +46,39 @@
     dest: "{{ ansible_user_dir }}/.profile"
     mode: "0644"
 
+# Ensure macOS / login shells source .bashrc as per upstream guidance
+- name: "Bash | Ensure ~/.bash_profile sources ~/.bashrc"
+  ansible.builtin.blockinfile:
+    path: "{{ ansible_user_dir }}/.bash_profile"
+    create: true
+    mode: "0644"
+    marker: "# {mark} ANSIBLE MANAGED BLOCK: source .bashrc"
+    block: |
+      if [[ -f ~/.bashrc ]]; then
+        source ~/.bashrc
+      fi
+
+# ~/.bash_private from vault (if provided)
+- name: "Bash | Write ~/.bash_private when secrets provided"
+  ansible.builtin.template:
+    src: ".bash_private.j2"
+    dest: "{{ ansible_user_dir }}/.bash_private"
+    mode: "0600"
+  when: bash_private is defined
+
+# Ensure directories then copy config/theme
+- name: "Bash | Ensure ~/.config exists"
+  ansible.builtin.file:
+    path: "{{ ansible_user_dir }}/.config"
+    state: directory
+    mode: "0755"
+
+- name: "Bash | Ensure ~/.config/bash exists"
+  ansible.builtin.file:
+    path: "{{ ansible_user_dir }}/.config/bash"
+    state: directory
+    mode: "0755"
+
 - name: "Bash | Copy custom bash config"
   ansible.builtin.copy:
     dest: "{{ ansible_user_dir }}/.config/"
@@ -47,6 +86,12 @@
     mode: "0644"
     directory_mode: "0755"
     force: true
+
+- name: "Bash | Ensure custom theme directory exists"
+  ansible.builtin.file:
+    path: "{{ ansible_user_dir }}/.oh-my-bash/custom"
+    state: directory
+    mode: "0755"
 
 - name: "Bash | Copy custom bash theme"
   ansible.builtin.copy:
@@ -56,6 +101,7 @@
     mode: "0644"
     force: true
 
+# OS-specific config selection and copy
 - name: "Bash | {{ ansible_distribution }} | Identify distribution config"
   ansible.builtin.stat:
     path: "{{ role_path }}/files/os/{{ ansible_distribution }}"
