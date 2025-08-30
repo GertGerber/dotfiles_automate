@@ -57,3 +57,60 @@
         source ~/.bashrc
       fi
   tags: [bash, profile]
+
+# --------------------
+# Themes & Plugins
+# --------------------
+- name: "Bash | Ensure OMB custom directories exist"
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - "{{ ansible_env.HOME }}/.oh-my-bash/custom/themes"
+    - "{{ ansible_env.HOME }}/.oh-my-bash/custom/plugins"
+  when: omb_dir.stat.exists or (bash_force_custom | bool)
+  tags: [bash, themes, plugins]
+
+- name: "Bash | Deploy custom theme(s)"
+  ansible.builtin.copy:
+    src: "themes/{{ item.src }}"
+    dest: "{{ ansible_env.HOME }}/.oh-my-bash/custom/themes/{{ item.dest }}"
+    mode: "0644"
+  loop: "{{ bash_custom_themes }}"
+  when:
+    - (omb_dir.stat.exists or (bash_force_custom | bool))
+    - bash_custom_themes | length > 0
+  tags: [bash, themes]
+
+- name: "Bash | Deploy custom plugin(s)"
+  ansible.builtin.copy:
+    src: "plugins/{{ item }}/{{ item }}.plugin.sh"
+    dest: "{{ ansible_env.HOME }}/.oh-my-bash/custom/plugins/{{ item }}/{{ item }}.plugin.sh"
+    mode: "0644"
+  loop: "{{ bash_custom_plugins }}"
+  when:
+    - (omb_dir.stat.exists or (bash_force_custom | bool))
+    - bash_custom_plugins | length > 0
+  tags: [bash, plugins]
+
+- name: "Bash | Configure theme and plugins in ~/.bashrc (managed block)"
+  ansible.builtin.blockinfile:
+    path: "{{ ansible_env.HOME }}/.bashrc"
+    insertafter: BOF
+    marker: "# {mark} ANSIBLE MANAGED OMB CONFIG"
+    block: |
+      # Oh My Bash managed configuration
+      export OSH_THEME="{{ bash_theme }}"
+      plugins=({{ bash_plugins | join(' ') }})
+  when: bash_manage_rc_block | bool
+  tags: [bash, config]
+
+- name: "Bash | Install full .bashrc template (opt-in)"
+  ansible.builtin.template:
+    src: "bashrc.j2"
+    dest: "{{ ansible_env.HOME }}/.bashrc"
+    mode: "0644"
+    backup: true
+  when: bash_manage_rc_template | bool
+  tags: [bash, config, template]

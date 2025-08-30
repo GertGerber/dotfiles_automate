@@ -1,3 +1,29 @@
 ---
 # Installer selector: 'curl' or 'wget'
 bash_install_method: curl
+
+# Custom theme deployment
+# Provide a list of maps: [{src: "placemakers.theme.sh", dest: "placemakers.theme.sh"}]
+bash_custom_themes:
+  - { src: "placemakers.theme.sh", dest: "placemakers.theme.sh" }
+# Name of the theme to activate (matches file sans extension)
+bash_theme: placemakers
+
+# Custom plugins to deploy (each must exist under files/plugins/<name>/<name>.plugin.sh)
+bash_custom_plugins:
+  - placemakers-aliases
+
+# Plugins to activate
+bash_plugins:
+  - git
+  - bashmarks
+  - placemakers-aliases
+
+# Whether to write a managed block into ~/.bashrc to set OSH_THEME & plugins
+bash_manage_rc_block: true
+
+# Whether to replace ~/.bashrc with our template (backed up). Prefer false to avoid clobbering.
+bash_manage_rc_template: false
+
+# Force theme/plugin deployment even if OMB not detected yet (useful in first-run edge cases)
+bash_force_custom: false

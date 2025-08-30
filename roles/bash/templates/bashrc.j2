@@ -1,0 +1,16 @@
+# ~/.bashrc (managed by Ansible template if enabled)
+# Loads Oh My Bash and sets theme/plugins using role variables.
+
+export OSH="$HOME/.oh-my-bash"
+export OSH_THEME="{{ bash_theme }}"
+plugins=({{ bash_plugins | join(' ') }})
+
+# Load Oh My Bash if present
+if [ -f "$OSH/oh-my-bash.sh" ]; then
+  source "$OSH/oh-my-bash.sh"
+fi
+
+# User local overrides can go here
+if [ -f "$HOME/.bashrc.local" ]; then
+  source "$HOME/.bashrc.local"
+fi
