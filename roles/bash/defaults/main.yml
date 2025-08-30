@@ -1,0 +1,6 @@
+---
+# Defaults for roles/bash
+bash_enable_theme: true
+bash_enable_starship_guard: true
+bash_use_vault: false
+bash_use_nala: false
