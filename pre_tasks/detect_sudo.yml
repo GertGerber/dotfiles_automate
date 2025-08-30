@@ -1,0 +1,105 @@
+---
+# Ubuntu/WSL-only privilege escalation detection and APT capability
+
+- name: Initialise sudo detection variables
+  ansible.builtin.set_fact:
+    has_sudo: false
+    sudo_method: 'none'
+    sudo_requires_password: true
+    can_install_packages: false
+    sudo_test_command: 'echo sudo test successful'
+    detected_package_manager: ''
+    privilege_escalation_available: false
+
+- name: Set package manager to apt on Ubuntu/WSL
+  ansible.builtin.set_fact:
+    detected_package_manager: apt
+  when: ansible_distribution in ['Ubuntu', 'Debian']
+
+- name: Verify apt exists
+  ansible.builtin.command: which apt-get
+  register: apt_check
+  changed_when: false
+  failed_when: false
+
+- name: Reset package manager if not found
+  ansible.builtin.set_fact:
+    detected_package_manager: none
+  when: apt_check.rc is defined and apt_check.rc != 0
+
+# Try passwordless sudo first (sudo -n)
+- name: Test sudo without password
+  ansible.builtin.command: sudo -n {{ sudo_test_command }}
+  register: sudo_nopass_test
+  ignore_errors: true
+  changed_when: false
+  failed_when: false
+  no_log: true
+
+- name: Set facts for passwordless sudo
+  ansible.builtin.set_fact:
+    has_sudo: true
+    sudo_method: 'sudo'
+    sudo_requires_password: false
+    privilege_escalation_available: true
+  when: sudo_nopass_test.rc == 0
+
+# If that failed, try with cached credentials
+- name: Test sudo with cached credentials – refresh timestamp
+  ansible.builtin.command: sudo -v
+  register: sudo_cached_test
+  ignore_errors: true
+  changed_when: false
+  failed_when: false
+  no_log: true
+  when: not has_sudo
+
+- name: Test sudo command with cached credentials
+  ansible.builtin.command: sudo {{ sudo_test_command }}
+  register: sudo_cached_exec
+  ignore_errors: true
+  changed_when: false
+  failed_when: false
+  no_log: true
+  when:
+    - not has_sudo
+    - sudo_cached_test.rc == 0
+
+- name: Set facts for sudo with cached credentials
+  ansible.builtin.set_fact:
+    has_sudo: true
+    sudo_method: 'sudo'
+    sudo_requires_password: true
+    privilege_escalation_available: true
+  when:
+    - not has_sudo
+    - sudo_cached_test.rc == 0
+    - sudo_cached_exec.rc == 0
+
+# Derive package install capability
+- name: Determine package installation capability
+  ansible.builtin.set_fact:
+    can_install_packages: "{{ has_sudo and detected_package_manager == 'apt' }}"
+
+# Apply become settings if we have sudo
+- name: Set Ansible become settings
+  ansible.builtin.set_fact:
+    ansible_become: true
+    ansible_become_method: sudo
+  when: has_sudo
+
+# Summaries
+- name: Show privilege escalation detection results
+  ansible.builtin.debug:
+    msg:
+      - "Privilege access available = {{ has_sudo }}"
+      - "Method = {{ sudo_method }}"
+      - "Requires password = {{ sudo_requires_password }}"
+      - "Package manager = {{ detected_package_manager }}"
+      - "Can install packages = {{ can_install_packages }}"
+
+- name: Warn when no privilege escalation is available
+  ansible.builtin.debug:
+    msg:
+      - "WARNING: No sudo detected. The play will continue but package tasks may be skipped."
+  when: not has_sudo
