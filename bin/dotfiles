@@ -350,6 +350,41 @@ case "$dotfiles_os" in
     ;;
 esac
 
+# Protect and preserve group_vars/all.yml across git pulls
+protect_groupvars_before_pull() {
+  local cfg="$DOTFILES_DIR/group_vars/all.yml"
+  GV_BACKUP=""
+  if [[ -f "$cfg" ]]; then
+    # If file is tracked, mark skip-worktree to prevent overwrites
+    if git -C "$DOTFILES_DIR" ls-files --error-unmatch "group_vars/all.yml" >/dev/null 2>&1; then
+      git -C "$DOTFILES_DIR" update-index --skip-worktree "group_vars/all.yml" >/dev/null 2>&1 || true
+    else
+      # Untracked locally but may exist upstream: back it up for restore
+      GV_BACKUP="$(mktemp)"
+      cp "$cfg" "$GV_BACKUP"
+    fi
+    # Also ensure local ignore to keep it out of status
+    mkdir -p "$DOTFILES_DIR/.git/info"
+    if ! grep -q "^group_vars/all.yml$" "$DOTFILES_DIR/.git/info/exclude" 2>/dev/null; then
+      echo "group_vars/all.yml" >> "$DOTFILES_DIR/.git/info/exclude"
+    fi
+  fi
+}
+
+restore_groupvars_after_pull() {
+  local cfg="$DOTFILES_DIR/group_vars/all.yml"
+  if [[ -n "${GV_BACKUP:-}" && -f "$GV_BACKUP" ]]; then
+    mkdir -p "$DOTFILES_DIR/group_vars"
+    cp "$GV_BACKUP" "$cfg"
+    rm -f "$GV_BACKUP"
+    # If the file is tracked post-pull, mark skip-worktree so future pulls won't touch it
+    if git -C "$DOTFILES_DIR" ls-files --error-unmatch "group_vars/all.yml" >/dev/null 2>&1; then
+      git -C "$DOTFILES_DIR" add -f "group_vars/all.yml" >/dev/null 2>&1 || true
+      git -C "$DOTFILES_DIR" update-index --skip-worktree "group_vars/all.yml" >/dev/null 2>&1 || true
+    fi
+  fi
+}
+
 # Clone or update dotfiles
 if [[ ! -d "$DOTFILES_DIR" ]]; then
   __task "Downloading dotfiles repository (This may take a minute)"
@@ -357,7 +392,19 @@ if [[ ! -d "$DOTFILES_DIR" ]]; then
   _task_done
 else
   __task "Updating dotfiles repository"
-  _cmd "git -C $DOTFILES_DIR pull --quiet"
+  protect_groupvars_before_pull
+  # Try a clean pull first (rebase + autostash for local tracked changes)
+  if ! git -C "$DOTFILES_DIR" pull --rebase --autostash --quiet; then
+    # If untracked group_vars/all.yml blocked the pull, temporarily move it aside and retry
+    if [[ -n "${GV_BACKUP:-}" ]]; then
+      rm -f "$DOTFILES_DIR/group_vars/all.yml"
+      git -C "$DOTFILES_DIR" pull --rebase --autostash --quiet
+    else
+      # Fallback retry
+      git -C "$DOTFILES_DIR" pull --rebase --autostash --quiet
+    fi
+  fi
+  restore_groupvars_after_pull
   _task_done
 fi
 
@@ -436,7 +483,7 @@ update_ansible_galaxy "$dotfiles_os"
 
 # Run Ansible
 _task_done
-ansible-playbook "$DOTFILES_DIR/main.yml" "${REMAINING_ARGS[@]}"
+ansible-playbook "$DOTFILES_DIR/main.yml" -i localhost, "${REMAINING_ARGS[@]}"
 
 popd >/dev/null 2>&1
 

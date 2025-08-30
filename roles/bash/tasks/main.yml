@@ -8,10 +8,6 @@
   ansible.builtin.set_fact:
     ohmybash_is_installed: "{{ ohmybash.stat.exists }}"
 
-- name: "Bash | Debug ohmybash_is_installed"
-  ansible.builtin.debug:
-    var: ohmybash_is_installed
-
 - name: "Bash | Install oh-my-bash"
   when: not ohmybash_is_installed
   block:
@@ -25,9 +21,9 @@
         - "Bash | Cleanup oh-my-bash install script"
 
     - name: "Bash | Run the install script (idempotent)"
-  ansible.builtin.command: bash "{{ ansible_user_dir }}/oh-my-bash.install.sh"
-  args:
-    creates: "{{ ansible_user_dir }}/.oh-my-bash"
+      ansible.builtin.command: bash "{{ ansible_user_dir }}/oh-my-bash.install.sh"
+      args:
+        creates: "{{ ansible_user_dir }}/.oh-my-bash"
 
 - name: "Bash | Copy .bashrc"
   ansible.builtin.copy:
@@ -56,7 +52,7 @@
     directory_mode: "0755"
     mode: "0644"
     force: true
-
+  when: ohmybash_is_installed
 
 - name: "Bash | Ensure axin theme is active"
   ansible.builtin.lineinfile:
@@ -65,6 +61,7 @@
     line: 'OSH_THEME="axin"'
     insertafter: '^export OSH='
     backrefs: false
+  when: ohmybash_is_installed
 
 - name: "Bash | {{ ansible_distribution }} | Identify distribution config"
   ansible.builtin.stat:
@@ -79,14 +76,18 @@
 
 - name: "Bash | Calculate os config src"
   ansible.builtin.set_fact:
-    bash_os_config: "{{ bash_os_distribution_config if bash_os_distribution_config.stat.exists else bash_os_family_config }}"
+    bash_os_config_path: >-
+      {{
+        (bash_os_distribution_config.stat.exists)
+        | ternary(bash_os_distribution_config.stat.path, bash_os_family_config.stat.path | default(''))
+      }}
 
-- name: "Bash | Copy custom bash config for os: {{ bash_os_config.stat.path | basename }}"
+- name: "Bash | Copy custom bash config for os"
   ansible.builtin.copy:
     dest: "{{ ansible_user_dir }}/.config/bash/"
-    src: "{{ bash_os_config.stat.path }}/"
+    src: "{{ bash_os_config_path }}/"
     mode: "0644"
     force: true
   when:
-    - bash_os_config is defined
-    - bash_os_config.stat.exists
+    - bash_os_config_path is defined
+    - bash_os_config_path | length > 0
