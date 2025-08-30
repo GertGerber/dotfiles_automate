@@ -8,17 +8,17 @@
       ansible.builtin.import_tasks: pre_tasks/detect_wsl.yml
       tags: [always]
 
-    - name: Debug: WSL detection result
+    - name: Debug WSL detection result
       ansible.builtin.debug:
         var: ansible_host_environment_is_wsl
       tags: [always]
 
-    - name: WSL-only: Confirm Windows PowerShell Execution Policy
+    - name: WSL-only Confirm Windows PowerShell Execution Policy
       ansible.builtin.import_tasks: pre_tasks/powershell_executionpolicy.yml
       when: ansible_host_environment_is_wsl | default(false)
       tags: [always]
 
-    - name: WSL-only: Detect Host User (Windows user)
+    - name: WSL-only Detect Host User (Windows user)
       ansible.builtin.import_tasks: pre_tasks/whoami_wsl.yml
       when: ansible_host_environment_is_wsl | default(false)
       tags: [always]
