@@ -1,6 +1,6 @@
 # ====================================================================
-# GertGerber Dotfiles Configuration
-# Save as: group_vars/all.yml
+# GertGerber Dotfiles Configuration Example
+# Save this as: group_vars/all.yml
 # ====================================================================
 
 # --------------------------------------------------------------------
@@ -12,8 +12,8 @@ git_user_name: "GertGerber"
 # PROFILE-DRIVEN ROLE SELECTION
 # --------------------------------------------------------------------
 
-# Options: basic | minimal | web | devops | full
-run_profile: basic
+# Options: minimal | web | devops | full
+run_profile: devops
 
 # Exclude roles from the final set (e.g. corp restrictions)
 exclude_roles: []  # e.g. [discord, spotify, brave]
@@ -24,49 +24,41 @@ os_role_overrides:
   Linux:   [flatpak, nala, alacritty, kitty, ghostty, warp]
   Windows: [winget, pwsh]
 
-# Break profiles into non-recursive pieces
-# Base lists (no self-reference)
-role_profiles_basic: [bash, zoxide]
-
-role_profiles_minimal: "{{ role_profiles_basic
-  + ['git','fzf','bat','lsd'] }}"
-
-role_profiles_web: "{{ role_profiles_minimal
-  + ['nvm','npm','python','gh','lazygit','neovim','tmux','brave'] }}"
-
-role_profiles_devops: "{{ role_profiles_minimal
-  + ['docker','helm','kubectl','k9s','terraform','awscli','azurecli',
-     'just','taskfile','btop','ncdu','ssh','sshfs','tmate'] }}"
-
-role_profiles_full: "{{ (role_profiles_web + role_profiles_devops + [
-  'starship','zsh','obsidian','alacritty','kitty','ghostty',
-  'wireguard','kind','kwctl','goreleaser','nomad',
-  '1password','tshark','slides','asciiquarium','whalebrew',
-  'zellij','spotify','discord','warp'
-]) | unique }}"
-
-# Map staged profiles into a single dictionary (now safe to reference)
+# Profiles (role names must match directories under roles/)
 role_profiles:
-  basic:   "{{ role_profiles_basic }}"
-  minimal: "{{ role_profiles_minimal }}"
-  web:     "{{ role_profiles_web }}"
-  devops:  "{{ role_profiles_devops }}"
-  full:    "{{ role_profiles_full }}"
+  minimal: [
+    system, fonts, git,
+    bash, fzf, zoxide, bat, lsd, tldr
+  ]
 
+  web: "{{ role_profiles['minimal'] + [
+    'nvm','npm','python','gh','lazygit','neovim','tmux','brave'
+  ] }}"
 
-# Resolve OS extras using gathered facts
-os_extra_roles: "{{ os_role_overrides.get(ansible_system, []) | default([]) }}"
+  devops: "{{ role_profiles['minimal'] + [
+    'docker','helm','kubectl','k9s','terraform','awscli','azurecli',
+    'just','taskfile','btop','ncdu','ssh','sshfs','tmate'
+  ] }}"
+
+  full: "{{ (role_profiles['web'] + role_profiles['devops'] + [
+    'starship','zsh','obsidian','alacritty','kitty','ghostty',
+    'wireguard','kind','kwctl','goreleaser','nomad',
+    '1password','tshark','slides','asciiquarium','whalebrew','zellij','spotify','discord','warp'
+  ]) | unique }}"
 
 # Final role selection:
 # - Start with the chosen profile
-# - Add OS-specific roles via os_extra_roles
+# - Add OS-specific roles via os_role_overrides
 # - Remove exclude_roles
 # - Deduplicate & sort for deterministic runs
 default_roles: >-
-  {{ (role_profiles[run_profile] | default(role_profiles['minimal']))
-   + (os_role_overrides.get(ansible_system, []))
-   | difference(exclude_roles) | unique | sort }}
-
+  {{
+    (role_profiles[run_profile] | default(role_profiles['minimal']))
+    + (os_role_overrides.get(ansible_system, []))
+    | difference(exclude_roles)
+    | unique
+    | sort
+  }}
 
 # --------------------------------------------------------------------
 # LANGUAGE / TOOL CONFIGURATION
@@ -107,3 +99,26 @@ node:
     - typescript
     - eslint
     - prettier
+
+# --------------------------------------------------------------------
+# SYSTEM / INTEGRATIONS
+# --------------------------------------------------------------------
+
+# Example: manage /etc/hosts via 1Password (experimental)
+# op:
+#   system:
+#     hosts:
+#       - { vault_path: "op://DevOps/Internal Services/hosts_entry", account: "my.1password.com" }
+
+# --------------------------------------------------------------------
+# TROUBLESHOOTING
+# --------------------------------------------------------------------
+# 1) "Role not found": ensure directory exists under roles/ and name matches tag.
+# 2) Nothing runs: check diagnostics for run_roles/available_roles; verify default_roles is computed as expected.
+# 3) Corporate blocks (e.g., Discord/Spotify): add to exclude_roles.
+# 4) Version drift: pin CLI/tool versions in role vars and Galaxy requirements.
+#
+# Targeted execution:
+#   ansible-playbook main.yml -i localhost, -t bash,zoxide
+# Skip specific roles:
+#   ansible-playbook main.yml -i localhost, --skip-tags docker

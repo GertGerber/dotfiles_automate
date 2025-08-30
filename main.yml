@@ -20,23 +20,83 @@
         available_roles: "{{ role_dirs.files | map(attribute='path') | map('basename') | list | difference(['roles']) }}"
       tags: [always]
 
+    # --- sane defaults so undefined vars don't blow up ---
+    - name: Preflight defaults
+      ansible.builtin.set_fact:
+        exclude_roles: "{{ exclude_roles | default([]) }}"
+        ansible_run_tags: "{{ ansible_run_tags | default([]) }}"
+        run_profile: "{{ run_profile | default('minimal') }}"
+        os_role_overrides: "{{ os_role_overrides | default({}) }}"
+      tags: [always]
+
+    - name: Discover available roles in roles/ directory (via find)
+      ansible.builtin.find:
+        paths: "{{ playbook_dir }}/roles"
+        file_type: directory
+        depth: 1
+      register: role_dirs
+      tags: [always]
+
+    - name: Compute available role names
+      ansible.builtin.set_fact:
+        available_roles: "{{ role_dirs.files
+                            | map(attribute='path')
+                            | map('basename')
+                            | list
+                            | difference(['roles']) }}"
+      tags: [always]
+
     - name: Compute role tags provided by user (excluding special tags)
       ansible.builtin.set_fact:
-        user_role_tags: "{{ (ansible_run_tags | difference(['all','always'])) | intersect(available_roles) }}"
+        user_role_tags: "{{ (ansible_run_tags | difference(['all','always']))
+                            | intersect(available_roles)
+                            | list }}"
+      tags: [always]
+
+    # --- pick the default list for the requested profile WITHOUT using a self-referential dict ---
+    # e.g. run_profile in {basic|minimal|web|devops|full}
+    # This looks up variables like role_profiles_minimal that you defined earlier.
+    - name: Compute default_roles from run_profile safely
+      ansible.builtin.set_fact:
+        default_roles: >-
+          {{
+            lookup('vars', 'role_profiles_' + run_profile)
+            | default(role_profiles_minimal, true)
+          }}
+      tags: [always]
+
+    # Optional: OS-specific adds (keys should match ansible_system: "Linux", "Darwin", "Windows")
+    - name: Apply OS role overrides
+      ansible.builtin.set_fact:
+        default_roles: "{{ (default_roles + (os_role_overrides.get(ansible_system, [])))
+                          | unique }}"
       tags: [always]
 
     - name: Compute roles to run (prefer user tags if any, else defaults)
       ansible.builtin.set_fact:
         run_roles: >-
           {{
-            (user_role_tags | length > 0)
-              | ternary(user_role_tags, (default_roles | default([])))
-            | difference(exclude_roles | default([]))
+            (user_role_tags | length > 0) | ternary(user_role_tags, default_roles)
+            | difference(exclude_roles)
             | intersect(available_roles)
             | unique
             | sort
           }}
       tags: [always]
+
+    # Debug helper so you can see what's happening
+    - name: Show role resolution
+      ansible.builtin.debug:
+        msg:
+          run_profile: "{{ run_profile }}"
+          available_roles: "{{ available_roles }}"
+          default_roles: "{{ default_roles }}"
+          user_role_tags: "{{ user_role_tags }}"
+          exclude_roles: "{{ exclude_roles }}"
+          os_role_overrides_for_system: "{{ os_role_overrides.get(ansible_system, []) }}"
+          run_roles: "{{ run_roles }}"
+      tags: [always]
+
 
     - name: Show resolved roles (diagnostic)
       ansible.builtin.debug:
