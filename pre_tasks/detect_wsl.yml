@@ -1,0 +1,19 @@
+---
+- name: Detect WSL via kernel osrelease
+  ansible.builtin.command: cat /proc/sys/kernel/osrelease
+  register: kernel_osrelease
+  changed_when: false
+  failed_when: false
+
+- name: Register WSL state (boolean)
+  ansible.builtin.set_fact:
+    ansible_host_environment_is_wsl: >-
+      {{
+        ('microsoft' in (kernel_osrelease.stdout | default('') | lower))
+        or
+        ('wsl' in (kernel_osrelease.stdout | default('') | lower))
+      }}
+
+- name: Show WSL state
+  ansible.builtin.debug:
+    msg: "WSL State: {{ ansible_host_environment_is_wsl }}"
