@@ -1,15 +1,23 @@
 ---
-- name: Compute roles to run
-  ansible.builtin.set_fact:
-    run_roles: >-
-      {{
-        (ansible_run_tags | length > 0)
-          | ternary(ansible_run_tags, (default_roles | default([])))
-        | difference(exclude_roles | default([]))
-        | unique
-        | sort
-      }}
-  tags: [always]
+- name: Run selected roles
+  hosts: localhost
+  connection: local
+  gather_facts: yes
+  vars_files:
+    - group_vars/all.yml
+
+  tasks:
+    - name: Compute roles to run
+      ansible.builtin.set_fact:
+        run_roles: >-
+          {{
+            (ansible_run_tags | length > 0)
+              | ternary(ansible_run_tags, (default_roles | default([])))
+            | difference(exclude_roles | default([]))
+            | unique
+            | sort
+          }}
+      tags: [always]
 
     - name: Run roles
       ansible.builtin.include_role:
