@@ -7,9 +7,17 @@
     - group_vars/all.yml
 
   tasks:
-    - name: Discover available roles in roles/ directory
+    - name: Discover available roles in roles/ directory (via find)
+      ansible.builtin.find:
+        paths: "{{ playbook_dir }}/roles"
+        file_type: directory
+        depth: 1
+      register: role_dirs
+      tags: [always]
+
+    - name: Compute available role names
       ansible.builtin.set_fact:
-        available_roles: "{{ lookup('ansible.builtin.fileglob', playbook_dir ~ '/roles/*', wantlist=True) | map('basename') | list }}"
+        available_roles: "{{ role_dirs.files | map(attribute='path') | map('basename') | list | difference(['roles']) }}"
       tags: [always]
 
     - name: Compute role tags provided by user (excluding special tags)
@@ -30,9 +38,20 @@
           }}
       tags: [always]
 
-    - name: Show resolved roles
+    - name: Show resolved roles (diagnostic)
       ansible.builtin.debug:
-        var: run_roles
+        msg:
+          run_roles: "{{ run_roles }}"
+          available_roles: "{{ available_roles }}"
+          user_role_tags: "{{ user_role_tags }}"
+          default_roles: "{{ default_roles | default([]) }}"
+      tags: [always]
+
+    - name: No roles resolved - provide hint
+      ansible.builtin.debug:
+        msg:
+          - "No roles to run. Ensure roles exist under {{ playbook_dir }}/roles and default_roles in group_vars/all.yml is set."
+      when: run_roles | length == 0
       tags: [always]
 
     - name: Run roles
@@ -43,4 +62,5 @@
       loop: "{{ run_roles }}"
       loop_control:
         loop_var: roles_item
+      when: run_roles | length > 0
       tags: [always]
