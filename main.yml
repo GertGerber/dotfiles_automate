@@ -54,6 +54,11 @@
       when: run_roles | length == 0
       tags: [always]
 
+    - name: Abort if no roles are resolved
+      ansible.builtin.fail:
+        msg: "No roles to run. Check roles/ and default_roles in group_vars/all.yml."
+      when: run_roles | length == 0
+
     - name: Run roles
       ansible.builtin.include_role:
         name: "{{ roles_item }}"
