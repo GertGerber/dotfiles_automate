@@ -1,0 +1,16 @@
+---
+- name: Register current Linux/Unix user
+  ansible.builtin.set_fact:
+    host_user: >-
+      {{
+        (ansible_env.USER
+         | default(ansible_user_id, true)
+         | string
+         | trim)
+      }}
+  when: host_user is not defined
+
+- name: Show detected host user
+  ansible.builtin.debug:
+    msg: "host_user: {{ host_user }}"
+  when: host_user is defined

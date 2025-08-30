@@ -1,0 +1,51 @@
+---
+# Resolve Windows host user while running under WSL
+
+- name: Check powershell.exe availability
+  ansible.builtin.command: which powershell.exe
+  register: ps_path
+  changed_when: false
+  failed_when: false
+
+- name: Get Windows user via PowerShell
+  ansible.builtin.shell: |
+    [System.Environment]::UserName
+  args:
+    executable: powershell.exe
+  register: windows_user_ps
+  changed_when: false
+  failed_when: false
+  when: ps_path.rc == 0
+
+- name: Fallback — Get Windows user via cmd.exe
+  ansible.builtin.shell: |
+    cmd.exe /c echo %USERNAME%
+  register: windows_user_cmd
+  changed_when: false
+  failed_when: false
+  when: ps_path.rc != 0
+
+- name: Normalise and register Windows Current User (only if host_user not predefined)
+  ansible.builtin.set_fact:
+    wsl_host_user: >-
+      {{
+        (
+          (windows_user_ps.stdout if ps_path.rc == 0 else windows_user_cmd.stdout)
+          | default('')
+          | regex_replace('\r', '')
+          | trim
+        )
+        | default('unknown', true)
+      }}
+  when: host_user is not defined
+
+- name: Warn when Windows user could not be determined
+  ansible.builtin.debug:
+    msg: "Could not determine Windows user under WSL; defaulting to 'unknown'."
+  when:
+    - host_user is not defined
+    - wsl_host_user | default('') == 'unknown'
+
+- name: Show resolved Windows user (WSL)
+  ansible.builtin.debug:
+    msg: "wsl_host_user: {{ wsl_host_user | default(host_user, true) }}"
