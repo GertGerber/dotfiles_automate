@@ -1,7 +1,14 @@
 ---
+# vars you can lift into defaults/main.yml
+ohmybash_theme: "axin"
+ohmybash_install_url: "https://raw.githubusercontent.com/ohmybash/oh-my-bash/master/tools/install.sh"
+ohmybash_install_checksum: "{{ omit }}"   # e.g. "sha256:abc123..." when you choose to pin
+home_dir: "{{ ansible_env.HOME }}"
+bash_config_src_dir: "bash"
+
 - name: "Bash | Detect oh-my-bash"
   ansible.builtin.stat:
-    path: "{{ ansible_user_dir }}/.oh-my-bash"
+    path: "{{ home_dir }}/.oh-my-bash"
   register: ohmybash
 
 - name: "Bash | Register oh-my-bash state"
@@ -11,57 +18,71 @@
 - name: "Bash | Install oh-my-bash"
   when: not ohmybash_is_installed
   block:
-    - name: "Bash | Download oh-my-bash Install Script"
+    - name: "Bash | Download oh-my-bash install script"
       ansible.builtin.get_url:
-        url: https://raw.githubusercontent.com/ohmybash/oh-my-bash/master/tools/install.sh
-        dest: "{{ ansible_user_dir }}/oh-my-bash.install.sh"
-        force: true
+        url: "{{ ohmybash_install_url }}"
+        dest: "{{ home_dir }}/oh-my-bash.install.sh"
         mode: "0755"
-      notify:
-        - "Bash | Cleanup oh-my-bash install script"
+        validate_certs: true
+        checksum: "{{ ohmybash_install_checksum | default(omit) }}"
+      notify: "Bash | Cleanup oh-my-bash install script"
 
-    - name: "Bash | Run the install script (idempotent)"
-      ansible.builtin.command: bash "{{ ansible_user_dir }}/oh-my-bash.install.sh"
+    - name: "Bash | Run install script (idempotent)"
+      ansible.builtin.command:
+        cmd: bash "{{ home_dir }}/oh-my-bash.install.sh"
       args:
-        creates: "{{ ansible_user_dir }}/.oh-my-bash"
+        creates: "{{ home_dir }}/.oh-my-bash"
 
+- name: "Bash | Refresh oh-my-bash state after install"
+  ansible.builtin.stat:
+    path: "{{ home_dir }}/.oh-my-bash"
+  register: ohmybash_after
+  changed_when: false
+
+- name: "Bash | Consolidate oh-my-bash state"
+  ansible.builtin.set_fact:
+    ohmybash_is_installed: "{{ ohmybash_after.stat.exists }}"
+
+# Base dotfiles – consider template if you need variables
 - name: "Bash | Copy .bashrc"
   ansible.builtin.copy:
     src: ".bashrc"
-    dest: "{{ ansible_user_dir }}/.bashrc"
+    dest: "{{ home_dir }}/.bashrc"
+    owner: "{{ ansible_user_id }}"
+    group: "{{ ansible_user_gid | default(ansible_user_id) }}"
     mode: "0644"
+    backup: true
 
 - name: "Bash | Copy .profile"
   ansible.builtin.copy:
     src: ".profile"
-    dest: "{{ ansible_user_dir }}/.profile"
+    dest: "{{ home_dir }}/.profile"
+    owner: "{{ ansible_user_id }}"
+    group: "{{ ansible_user_gid | default(ansible_user_id) }}"
     mode: "0644"
+    backup: true
+
+# Ensure config dirs exist before copying trees
+- name: "Bash | Ensure config directories exist"
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ ansible_user_id }}"
+    group: "{{ ansible_user_gid | default(ansible_user_id) }}"
+    mode: "0755"
+  loop:
+    - "{{ home_dir }}/.config"
+    - "{{ home_dir }}/.config/bash"
 
 - name: "Bash | Copy custom bash config"
   ansible.builtin.copy:
-    dest: "{{ ansible_user_dir }}/.config/"
-    src: "bash"
+    src: "{{ bash_config_src_dir }}"
+    dest: "{{ home_dir }}/.config/"
+    owner: "{{ ansible_user_id }}"
+    group: "{{ ansible_user_gid | default(ansible_user_id) }}"
     mode: "0644"
     directory_mode: "0755"
     force: true
-
-- name: "Bash | Copy custom bash theme"
-  ansible.builtin.copy:
-    dest: "{{ ansible_user_dir }}/.oh-my-bash/custom/"
-    src: "themes"
-    directory_mode: "0755"
-    mode: "0644"
-    force: true
-  when: ohmybash_is_installed
-
-- name: "Bash | Ensure axin theme is active"
-  ansible.builtin.lineinfile:
-    path: "{{ ansible_user_dir }}/.bashrc"
-    regexp: '^#?\s*OSH_THEME='
-    line: 'OSH_THEME="axin"'
-    insertafter: '^export OSH='
-    backrefs: false
-  when: ohmybash_is_installed
 
 - name: "Bash | {{ ansible_distribution }} | Identify distribution config"
   ansible.builtin.stat:
@@ -79,15 +100,53 @@
     bash_os_config_path: >-
       {{
         (bash_os_distribution_config.stat.exists)
-        | ternary(bash_os_distribution_config.stat.path, bash_os_family_config.stat.path | default(''))
+        | ternary('os/' ~ ansible_distribution, (bash_os_family_config.stat.exists | default(false)) | ternary('os/' ~ ansible_os_family, ''))
       }}
 
 - name: "Bash | Copy custom bash config for os"
   ansible.builtin.copy:
-    dest: "{{ ansible_user_dir }}/.config/bash/"
     src: "{{ bash_os_config_path }}/"
+    dest: "{{ home_dir }}/.config/bash/"
+    owner: "{{ ansible_user_id }}"
+    group: "{{ ansible_user_gid | default(ansible_user_id) }}"
     mode: "0644"
     force: true
-  when:
-    - bash_os_config_path is defined
-    - bash_os_config_path | length > 0
+  when: bash_os_config_path | length > 0
+
+# Post-install theming – safe on first run now
+- name: "Bash | Ensure OMB custom dir exists"
+  ansible.builtin.file:
+    path: "{{ home_dir }}/.oh-my-bash/custom"
+    state: directory
+    owner: "{{ ansible_user_id }}"
+    group: "{{ ansible_user_gid | default(ansible_user_id) }}"
+    mode: "0755"
+  when: ohmybash_is_installed
+
+- name: "Bash | Copy custom bash theme"
+  ansible.builtin.copy:
+    src: "themes"
+    dest: "{{ home_dir }}/.oh-my-bash/custom/"
+    owner: "{{ ansible_user_id }}"
+    group: "{{ ansible_user_gid | default(ansible_user_id) }}"
+    mode: "0644"
+    directory_mode: "0755"
+    force: true
+  when: ohmybash_is_installed
+
+# Prefer one managed block for OMB wiring
+- name: "Bash | Ensure oh-my-bash is wired into .bashrc"
+  ansible.builtin.blockinfile:
+    path: "{{ home_dir }}/.bashrc"
+    marker: "# {mark} ANSIBLE MANAGED OMB"
+    block: |
+      export OSH="{{ home_dir }}/.oh-my-bash"
+      OSH_THEME="{{ ohmybash_theme }}"
+      source "$OSH/oh-my-bash.sh"
+  when: ohmybash_is_installed
+
+# handlers/main.yml
+# - name: Bash | Cleanup oh-my-bash install script
+#   ansible.builtin.file:
+#     path: "{{ home_dir }}/oh-my-bash.install.sh"
+#     state: absent
