@@ -7,16 +7,32 @@
     - group_vars/all.yml
 
   tasks:
-    - name: Compute roles to run
+    - name: Discover available roles in roles/ directory
+      ansible.builtin.set_fact:
+        available_roles: "{{ lookup('ansible.builtin.fileglob', playbook_dir ~ '/roles/*', wantlist=True) | map('basename') | list }}"
+      tags: [always]
+
+    - name: Compute role tags provided by user (excluding special tags)
+      ansible.builtin.set_fact:
+        user_role_tags: "{{ (ansible_run_tags | difference(['all','always'])) | intersect(available_roles) }}"
+      tags: [always]
+
+    - name: Compute roles to run (prefer user tags if any, else defaults)
       ansible.builtin.set_fact:
         run_roles: >-
           {{
-            (ansible_run_tags | length > 0)
-              | ternary(ansible_run_tags, (default_roles | default([])))
+            (user_role_tags | length > 0)
+              | ternary(user_role_tags, (default_roles | default([])))
             | difference(exclude_roles | default([]))
+            | intersect(available_roles)
             | unique
             | sort
           }}
+      tags: [always]
+
+    - name: Show resolved roles
+      ansible.builtin.debug:
+        var: run_roles
       tags: [always]
 
     - name: Run roles
